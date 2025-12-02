@@ -23,9 +23,9 @@ export default function FuturesProPage() {
   // ▶ FIRST LOAD (when user clicks Positions tab)
   useEffect(() => {
     if (activeTab === "Positions") {
-      fetch(`/api/futures/positions?userId=${userId}`)
-        .then((res) => res.json())
-        .then((d) => d.ok && setPositions(d.data));
+      fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/positions?userId=${userId}`)
+      .then((res) => res.json())
+      .then((d) => d.ok && setPositions(d.data));
     }
   }, [activeTab]);
 
@@ -79,11 +79,12 @@ export default function FuturesProPage() {
     };
 
     try {
-      await fetch("/api/futures/order", {
-        method: "POST",
-        body: JSON.stringify(body),
-        headers: { "Content-Type": "application/json" },
-      });
+      await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/order`, {
+  method: "POST",
+  body: JSON.stringify(body),
+  headers: { "Content-Type": "application/json" },
+});
+
 
       addToast(`${side.toUpperCase()} order executed`, "success");
       setAmount("");
