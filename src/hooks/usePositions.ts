@@ -15,8 +15,12 @@ export default function usePositions(userId: number = 1) {
 
   // 🔹 2) live updates from WebSocket
   useEffect(() => {
-    const WS = process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:5001";
-    const ws = new WebSocket(WS);
+    // const WS = process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:5001";
+    const WS = process.env.NEXT_PUBLIC_WS_URL!;
+const ws = new WebSocket(WS);
+
+    console.log('WS',WS);
+        console.log('ws', ws);
 
   ws.onmessage = (event) => {
   const payload = JSON.parse(event.data);
