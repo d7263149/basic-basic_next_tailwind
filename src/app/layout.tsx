@@ -1,5 +1,5 @@
 import "./globals.css";
-import Link from "next/link";
+import Navbar from "@/components/Navbar";
 import type { ReactNode } from "react";
 
 export const metadata = {
@@ -11,24 +11,15 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en">
       <body className="min-h-screen flex flex-col">
+        
+        <Navbar />
 
-        {/* HEADER */}
-        <header className="w-full bg-black text-white py-4 px-6 flex items-center justify-between">
-          <h1 className="text-xl font-bold">My Exchange Header</h1>
+        <main className="flex-1">
+          {children}
+        </main>
 
-          {/* NAV LINKS */}
-          <nav className="flex space-x-4">
-            <Link href="/" className="hover:text-gray-300">Home</Link>
-            <Link href="/about" className="hover:text-gray-300">About</Link>
-          </nav>
-        </header>
-
-        {/* MAIN CONTENT */}
-        <main className="flex-1 p-6">{children}</main>
-
-        {/* FOOTER */}
         <footer className="w-full bg-gray-900 text-gray-300 py-3 text-center">
-          <p>My Footer © 2025</p>
+          <p>ExchangeX © 2025</p>
         </footer>
 
       </body>
