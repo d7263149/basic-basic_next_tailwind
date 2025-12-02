@@ -18,28 +18,27 @@ export default function usePositions(userId: number = 1) {
     const WS = process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:5001";
     const ws = new WebSocket(WS);
 
-    ws.onmessage = (event) => {
-      const payload = JSON.parse(event.data);
-      if (payload.type !== "position") return;
+  ws.onmessage = (event) => {
+  const payload = JSON.parse(event.data);
+  if (payload.type !== "position") return;
 
-      setPositions((prev) => {
-        const item = payload.data;
+  const item = payload.data;
+  if (item.userId != userId) return;
 
-        // ❗ only update positions of same user
-        if (item.userId != userId) return prev;
+  setPositions((prev) => {
+    const updated = [...prev];
+    const index = updated.findIndex((p) => p.id === item.id);
 
-        const updated = [...prev];
-        const index = updated.findIndex((p) => p.id === item.id);
+    if (index === -1) {
+      updated.unshift(item);
+    } else {
+      updated[index] = item;
+    }
 
-        if (index === -1) {
-          updated.unshift(item);
-        } else {
-          updated[index] = item;
-        }
+    return updated;
+  });
+};
 
-        return [...updated];
-      });
-    };
 
     return () => ws.close();
   }, [userId]);
