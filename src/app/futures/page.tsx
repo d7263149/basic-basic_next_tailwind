@@ -79,7 +79,7 @@ export default function FuturesProPage() {
     };
 
     try {
-      await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/order`, {
+      await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/order/create`, {
   method: "POST",
   body: JSON.stringify(body),
   headers: { "Content-Type": "application/json" },
