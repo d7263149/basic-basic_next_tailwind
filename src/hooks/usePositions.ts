@@ -24,7 +24,7 @@ const ws = new WebSocket(WS);
 
   ws.onmessage = (event) => {
   const payload = JSON.parse(event.data);
-  if (payload.type !== "position") return;
+  if (payload.type !== "completed_trade") return;
 
   const item = payload.data;
   if (item.userId != userId) return;

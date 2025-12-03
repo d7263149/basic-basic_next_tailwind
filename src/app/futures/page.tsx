@@ -6,70 +6,95 @@ import ToastContainer from "@/components/ToastContainer";
 type ToastType = "success" | "error";
 
 export default function FuturesProPage() {
+  const userId = 1;
+
+  // UI States
   const [symbol, setSymbol] = useState("XRPUSDT");
   const [amount, setAmount] = useState("");
   const [leverage, setLeverage] = useState("10");
 
+  const [activeTab, setActiveTab] = useState("Positions");
+  const [positions, setPositions] = useState<any[]>([]);
+
+  const [livePrice, setLivePrice] = useState<number | null>(null);
   const [toasts, setToasts] = useState<
     { id: string; message: string; type: ToastType }[]
   >([]);
 
-  const [activeTab, setActiveTab] = useState("Positions");
-
-  const [positions, setPositions] = useState<any[]>([]);
-
-  const userId = 1; // 🔥 default test user
-
-  // ▶ FIRST LOAD (when user clicks Positions tab)
+  // =====================================================
+  // FETCH INITIAL POSITIONS
+  // =====================================================
   useEffect(() => {
-    if (activeTab === "Positions") {
-      fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/positions?userId=${userId}`)
+    if (activeTab !== "Positions") return;
+
+    fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/positions?userId=${userId}`)
       .then((res) => res.json())
       .then((d) => d.ok && setPositions(d.data));
-    }
   }, [activeTab]);
 
-  // ▶ LIVE STREAM — update table instantly
+  // =====================================================
+  // WEBSOCKET FOR stream:completed
+  // =====================================================
   useEffect(() => {
-   const ws = new WebSocket(process.env.NEXT_PUBLIC_WS_URL!);
-
+    const ws = new WebSocket(process.env.NEXT_PUBLIC_WS_URL!);
 
     ws.onmessage = (msg) => {
       const payload = JSON.parse(msg.data);
 
-      if (payload.type === "position" && activeTab === "Positions") {
-        setPositions((prev) => {
-          const updated = [...prev];
-          const index = updated.findIndex((p) => p.id === payload.data.id);
+      if (payload.type !== "completed_trade") return;
 
-          if (index === -1) updated.unshift(payload.data);
-          else updated[index] = payload.data;
+      const p = payload.data;
+      if (p.userId != userId) return;
 
-          return [...updated];
-        });
-      }
+      setPositions((prev) => {
+        const arr = [...prev];
+        const idx = arr.findIndex((x) => x.id === p.id);
+
+        if (idx === -1) arr.unshift(p);
+        else arr[idx] = p;
+
+        return arr;
+      });
     };
 
     return () => ws.close();
-  }, [activeTab]);
+  }, []);
 
+  // =====================================================
+  // LIVE MARK PRICE (Binance)
+  // =====================================================
+  useEffect(() => {
+    const interval = setInterval(async () => {
+      try {
+        const res = await fetch(
+          `${process.env.NEXT_PUBLIC_API_URL}/api/mark?symbol=XRPUSDT`
+        );
+        const data = await res.json();
+        if (data.ok) setLivePrice(Number(data.price));
+      } catch {}
+    }, 1200);
+
+    return () => clearInterval(interval);
+  }, []);
+
+  // =====================================================
+  // TOAST SYSTEM
+  // =====================================================
   const addToast = (message: string, type: ToastType) => {
     const id = String(Date.now());
-    setToasts((prev) => [...prev, { id, message, type }]);
+    setToasts((t) => [...t, { id, message, type }]);
   };
+  const removeToast = (id: string) =>
+    setToasts((t) => t.filter((toast) => toast.id !== id));
 
-  const removeToast = (id: string) => {
-    setToasts((prev) => prev.filter((t) => t.id !== id));
-  };
-
+  // =====================================================
+  // PLACE ORDER
+  // =====================================================
   const handleOrder = async (side: "buy" | "sell") => {
-    if (!amount) {
-      addToast("Enter amount!", "error");
-      return;
-    }
+    if (!amount) return addToast("Enter amount!", "error");
 
     const body = {
-      userId: 1,
+      userId,
       symbol,
       event: "insert",
       qty: Number(amount),
@@ -78,162 +103,191 @@ export default function FuturesProPage() {
       side,
     };
 
+    await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/order/create`, {
+      method: "POST",
+      body: JSON.stringify(body),
+      headers: { "Content-Type": "application/json" },
+    });
+
+    addToast(`${side.toUpperCase()} order executed`, "success");
+    setAmount("");
+  };
+
+  // =====================================================
+  // PNL FORMULA (Binance Futures Style)
+  // =====================================================
+  const getPNL = (p: any) => {
+    if (!livePrice) return "-";
+
+    const entry = Number(p.entry_price);
+    const qty = Number(p.qty_xrp);
+    const side = p.side;
+
+    let pnl = 0;
+
+    if (side === "BUY") {
+      pnl = (livePrice - entry) * qty;
+    } else {
+      pnl = (entry - livePrice) * qty;
+    }
+
+    return pnl.toFixed(3);
+  };
+
+  const renderPNL = (p: any) => {
+    if (!livePrice) return "-";
+    const pnl = Number(getPNL(p));
+    return (
+      <span className={pnl >= 0 ? "text-green-400" : "text-red-400"}>
+        {pnl}
+      </span>
+    );
+  };
+
+  const renderTime = (p: any) => {
     try {
-      await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/order/create`, {
-  method: "POST",
-  body: JSON.stringify(body),
-  headers: { "Content-Type": "application/json" },
-});
-
-
-      addToast(`${side.toUpperCase()} order executed`, "success");
-      setAmount("");
+      return new Date(p.ts_human).toLocaleString();
     } catch {
-      addToast("API Error!", "error");
+      return "-";
     }
   };
 
+  // =====================================================
+  // UI
+  // =====================================================
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 to-black p-4 flex flex-col">
 
-      {/* MAIN LAYOUT */}
+      {/* ===========================================
+          TOP ROW LAYOUT
+      ============================================ */}
       <div className="flex flex-1 gap-4">
 
-        {/* LEFT — CHART RESERVED */}
-        <div className="flex-1 hidden lg:block bg-black/20 border border-white/10 rounded-2xl backdrop-blur-md">
-          <div className="h-full flex items-center justify-center text-gray-500 text-lg">
+        {/* CHART AREA (placeholder) */}
+        <div className="flex-1 hidden lg:block bg-black/20 border border-white/10 rounded-2xl">
+          <div className="h-full flex items-center justify-center text-gray-500">
             📊 Chart + Depth Area
           </div>
         </div>
 
-        {/* RIGHT — ORDER PANEL */}
-        <div className="w-full lg:w-[420px] bg-white/10 border border-white/20 rounded-2xl backdrop-blur-lg p-8">
-          <h1 className="text-3xl font-bold text-white mb-6 text-center">Futures Pro</h1>
+        {/* RIGHT ORDER PANEL */}
+        <div className="w-full lg:w-[420px] bg-white/10 border border-white/20 rounded-2xl p-8">
+          <h1 className="text-3xl font-bold text-white mb-6 text-center">
+            Futures Pro
+          </h1>
 
           {/* Symbol */}
-          <label className="text-gray-300 mb-2 block font-medium">Symbol</label>
+          <label className="text-gray-300 block mb-2">Symbol</label>
           <select
             value={symbol}
             onChange={(e) => setSymbol(e.target.value)}
-            className="w-full p-3 bg-black/40 border border-gray-700 rounded-lg text-white mb-5"
+            className="w-full p-3 bg-black/40 text-white border border-gray-700 rounded-lg mb-5"
           >
             <option value="XRPUSDT">XRPUSDT</option>
           </select>
 
           {/* Amount */}
-          <label className="text-gray-300 mb-2 block font-medium">Amount ($)</label>
+          <label className="text-gray-300 block mb-2">Amount ($)</label>
           <input
-            type="number"
-            placeholder="Enter dollars"
             value={amount}
             onChange={(e) => setAmount(e.target.value)}
-            className="w-full p-3 bg-black/40 border border-gray-700 text-white rounded-lg mb-5"
+            type="number"
+            className="w-full p-3 bg-black/40 text-white border border-gray-700 rounded-lg mb-5"
+            placeholder="Enter dollars"
           />
 
           {/* Leverage */}
-          <label className="text-gray-300 mb-2 block font-medium">Leverage (x)</label>
+          <label className="text-gray-300 block mb-2">Leverage (x)</label>
           <input
+            value={leverage}
+            onChange={(e) => setLeverage(e.target.value)}
             type="number"
             min="1"
             max="125"
-            value={leverage}
-            onChange={(e) => setLeverage(e.target.value)}
-            className="w-full p-3 bg-black/40 border border-gray-700 text-white rounded-lg mb-6"
+            className="w-full p-3 bg-black/40 text-white border border-gray-700 rounded-lg mb-6"
           />
 
-          {/* BUY & SELL */}
-          <div className="flex flex-col gap-3">
-            <button
-              onClick={() => handleOrder("buy")}
-              className="py-3 bg-green-600 hover:bg-green-700 text-white font-semibold rounded-xl transition"
-            >
-              LONG
-            </button>
+          <button
+            onClick={() => handleOrder("buy")}
+            className="py-3 mb-3 w-full bg-green-600 hover:bg-green-700 text-white font-semibold rounded-xl"
+          >
+            LONG
+          </button>
 
-            <button
-              onClick={() => handleOrder("sell")}
-              className="py-3 bg-red-600 hover:bg-red-700 text-white font-semibold rounded-xl transition"
-            >
-              SHORT
-            </button>
-          </div>
+          <button
+            onClick={() => handleOrder("sell")}
+            className="py-3 w-full bg-red-600 hover:bg-red-700 text-white font-semibold rounded-xl"
+          >
+            SHORT
+          </button>
         </div>
       </div>
 
-      {/* BOTTOM — TABS */}
-      <div className="mt-4 bg-black/30 border border-white/10 rounded-xl backdrop-blur-md p-4 flex flex-col">
+      {/* ===========================================
+          BOTTOM TABS + POSITIONS TABLE
+      ============================================ */}
+      <div className="mt-4 bg-black/30 border border-white/10 rounded-xl p-4 flex flex-col">
 
         {/* Tabs */}
-        <div className="flex gap-6 border-b border-white/10 mb-3 overflow-x-auto">
-          {[
-            { name: "Positions", count: positions.length },
-            { name: "Open Orders" },
-            { name: "Order History" },
-            { name: "Transaction History" },
-            { name: "Assets" },
-          ].map((t) => (
-            <button
-              key={t.name}
-              onClick={() => setActiveTab(t.name)}
-              className={`pb-3 whitespace-nowrap transition ${
-                activeTab === t.name
-                  ? "text-yellow-400 font-semibold border-b-2 border-yellow-400"
-                  : "text-gray-400 hover:text-white"
-              }`}
-            >
-              {t.name}
-              {t.count !== undefined && t.count > 0 && (
-                <span className="ml-2 text-xs bg-yellow-500 text-black px-2 py-[1px] rounded-md">
-                  {t.count}
-                </span>
-              )}
-            </button>
-          ))}
+        <div className="flex gap-6 border-b border-white/10 mb-3">
+          <button
+            onClick={() => setActiveTab("Positions")}
+            className={`pb-3 ${
+              activeTab === "Positions"
+                ? "text-yellow-400 font-semibold border-b-2 border-yellow-400"
+                : "text-gray-400"
+            }`}
+          >
+            Positions
+            <span className="ml-2 text-xs bg-yellow-500 text-black px-2 py-[1px] rounded-md">
+              {positions.length}
+            </span>
+          </button>
         </div>
 
-        {/* TAB CONTENT */}
-        <div className="flex-1 min-h-[220px] text-gray-300 overflow-auto">
-          {activeTab === "Positions" &&
-            (positions.length > 0 ? (
-              <table className="w-full text-sm text-gray-300">
-                <thead className="border-b border-white/10">
-                  <tr>
-                    <th className="py-2 text-left">Symbol</th>
-                    <th className="py-2 text-right">Qty</th>
-                    <th className="py-2 text-right">Lev</th>
-                    <th className="py-2 text-right">Side</th>
-                    <th className="py-2 text-right">Time</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {positions.map((p) => (
-                    <tr key={p.id} className="border-b border-white/5">
-                      <td className="py-2">{p.symbol}</td>
-                      <td className="py-2 text-right">{p.qty}</td>
-                      <td className="py-2 text-right">{p.leverage}x</td>
-                      <td
-                        className={`py-2 text-right font-semibold ${
-                          p.side === "buy" ? "text-green-400" : "text-red-400"
-                        }`}
-                      >
-                        {p.side.toUpperCase()}
-                      </td>
-                      <td className="py-2 text-right">
-                        {new Date(Number(p.ts)).toLocaleTimeString()}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            ) : (
-              <div className="flex items-center justify-center h-full opacity-60">
-                No open positions
-              </div>
+        {/* TABLE */}
+        <table className="w-full text-sm text-gray-300">
+          <thead className="bg-[#0d1117] text-gray-400 uppercase text-xs">
+            <tr>
+              <th className="px-4 py-3">Symbol</th>
+              <th className="px-4 py-3">Qty (XRP)</th>
+              <th className="px-4 py-3">Entry</th>
+              <th className="px-4 py-3">Mark</th>
+              <th className="px-4 py-3">Lev</th>
+              <th className="px-4 py-3">Side</th>
+              <th className="px-4 py-3">PNL</th>
+              <th className="px-4 py-3">Time</th>
+            </tr>
+          </thead>
+
+          <tbody>
+            {positions.map((p) => (
+              <tr
+                key={p.id}
+                className="border-b border-gray-800 hover:bg-[#161b22]"
+              >
+                <td className="px-4 py-3">{p.symbol}</td>
+                <td className="px-4 py-3">{p.qty_xrp}</td>
+                <td className="px-4 py-3">{p.entry_price}</td>
+                <td className="px-4 py-3">
+                  {livePrice ? Number(livePrice).toFixed(6) : "-"}
+                </td>
+                <td className="px-4 py-3">{p.leverage}x</td>
+                <td
+                  className={`px-4 py-3 font-semibold ${
+                    p.side === "BUY" ? "text-green-400" : "text-red-400"
+                  }`}
+                >
+                  {p.side}
+                </td>
+                <td className="px-4 py-3">{renderPNL(p)}</td>
+                <td className="px-4 py-3">{renderTime(p)}</td>
+              </tr>
             ))}
-        </div>
+          </tbody>
+        </table>
       </div>
 
-      {/* Toasts */}
       <ToastContainer toasts={toasts} removeToast={removeToast} />
     </div>
   );
